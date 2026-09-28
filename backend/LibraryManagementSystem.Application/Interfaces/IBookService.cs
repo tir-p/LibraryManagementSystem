@@ -11,4 +11,5 @@ public interface IBookService
     Task DeleteAsync(Guid id);
     Task<IReadOnlyList<BookCopyDto>> GetCopiesAsync(Guid bookId);
     Task<BookCopyDto> AddCopyAsync(Guid bookId, CreateBookCopyRequest request);
+    Task<IReadOnlyList<BookAvailabilityDto>> GetAvailabilityAsync();
 }

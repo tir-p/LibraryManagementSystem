@@ -1,6 +1,7 @@
 using LibraryManagementSystem.Application.DTOs;
 using LibraryManagementSystem.Application.Interfaces;
 using LibraryManagementSystem.Domain.Entities;
+using LibraryManagementSystem.Domain.Exceptions;
 using LibraryManagementSystem.Domain.Interfaces;
 
 namespace LibraryManagementSystem.Application.Services;
@@ -26,6 +27,10 @@ public class MemberService : IMemberService
 
     public async Task<MemberDto> CreateAsync(CreateMemberRequest request)
     {
+        var existing = await _members.ListAsync();
+        if (existing.Any(m => m.Email.Equals(request.Email.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("A member with this email already exists.");
+
         var member = new Member(request.FirstName, request.LastName, request.Email, request.Phone);
         await _members.AddAsync(member);
         await _members.SaveChangesAsync();

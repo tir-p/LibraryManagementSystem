@@ -49,3 +49,6 @@ public record BookCopyDto(
     bool IsAvailable);
 
 public record CreateBookCopyRequest(string Barcode, string? ShelfLocation);
+
+// One row per title: avoids N+1 fetches of copies per book from the frontend.
+public record BookAvailabilityDto(Guid BookId, int TotalCopies, int AvailableCopies);

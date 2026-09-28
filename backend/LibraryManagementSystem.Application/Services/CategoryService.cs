@@ -1,6 +1,7 @@
 using LibraryManagementSystem.Application.DTOs;
 using LibraryManagementSystem.Application.Interfaces;
 using LibraryManagementSystem.Domain.Entities;
+using LibraryManagementSystem.Domain.Exceptions;
 using LibraryManagementSystem.Domain.Interfaces;
 
 namespace LibraryManagementSystem.Application.Services;
@@ -26,6 +27,10 @@ public class CategoryService : ICategoryService
 
     public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request)
     {
+        var existing = await _categories.ListAsync();
+        if (existing.Any(c => c.Name.Equals(request.Name.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("A category with this name already exists.");
+
         var category = new Category(request.Name, request.Description);
         await _categories.AddAsync(category);
         await _categories.SaveChangesAsync();
@@ -35,6 +40,10 @@ public class CategoryService : ICategoryService
     public async Task<CategoryDto> UpdateAsync(Guid id, UpdateCategoryRequest request)
     {
         var category = await GetOrThrow(id);
+        var existing = await _categories.ListAsync();
+        if (existing.Any(c => c.Id != id && c.Name.Equals(request.Name.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("A category with this name already exists.");
+
         category.Update(request.Name, request.Description);
         _categories.Update(category);
         await _categories.SaveChangesAsync();

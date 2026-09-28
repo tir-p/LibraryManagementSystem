@@ -20,6 +20,10 @@ public class BooksController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<BookDto>>> GetAll()
         => Ok(await _service.GetAllAsync());
 
+    [HttpGet("availability")]
+    public async Task<ActionResult<IReadOnlyList<BookAvailabilityDto>>> GetAvailability()
+        => Ok(await _service.GetAvailabilityAsync());
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<BookDto>> GetById(Guid id)
         => Ok(await _service.GetByIdAsync(id));

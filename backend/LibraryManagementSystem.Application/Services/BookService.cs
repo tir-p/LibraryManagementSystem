@@ -1,6 +1,7 @@
 using LibraryManagementSystem.Application.DTOs;
 using LibraryManagementSystem.Application.Interfaces;
 using LibraryManagementSystem.Domain.Entities;
+using LibraryManagementSystem.Domain.Exceptions;
 using LibraryManagementSystem.Domain.Interfaces;
 
 namespace LibraryManagementSystem.Application.Services;
@@ -45,6 +46,11 @@ public class BookService : IBookService
         await GetAuthorOrThrow(request.AuthorId);
         await GetCategoryOrThrow(request.CategoryId);
 
+        // Friendly 400 instead of a raw SQL unique-violation 500 on duplicate ISBN.
+        var existing = await _books.ListAsync();
+        if (existing.Any(b => b.Isbn.Equals(request.Isbn.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("A book with this ISBN already exists.");
+
         var book = new Book(
             request.Title, request.Isbn, request.AuthorId, request.CategoryId,
             request.PublishedYear, request.Pages, request.Description,
@@ -86,10 +92,26 @@ public class BookService : IBookService
     public async Task<BookCopyDto> AddCopyAsync(Guid bookId, CreateBookCopyRequest request)
     {
         var book = await GetBookOrThrow(bookId);
+        var copies = await _copies.ListAsync();
+        if (copies.Any(c => c.Barcode.Equals(request.Barcode.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new DomainException("A copy with this barcode already exists.");
+
         var copy = new BookCopy(book.Id, request.Barcode, request.ShelfLocation);
         await _copies.AddAsync(copy);
         await _copies.SaveChangesAsync();
         return ToCopyDto(copy, book.Title);
+    }
+
+    public async Task<IReadOnlyList<BookAvailabilityDto>> GetAvailabilityAsync()
+    {
+        var books = await _books.ListAsync();
+        var copies = await _copies.ListAsync();
+        return books
+            .Select(b => new BookAvailabilityDto(
+                b.Id,
+                copies.Count(c => c.BookId == b.Id),
+                copies.Count(c => c.BookId == b.Id && c.IsAvailable)))
+            .ToList();
     }
 
     // One bulk fetch of display names (avoids a query per book).

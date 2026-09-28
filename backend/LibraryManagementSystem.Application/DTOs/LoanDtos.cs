@@ -4,6 +4,7 @@ public record LoanDto(
     Guid Id,
     Guid BookCopyId,
     string? Barcode,
+    string? BookTitle,
     Guid MemberId,
     string? MemberName,
     DateTime BorrowedAt,
