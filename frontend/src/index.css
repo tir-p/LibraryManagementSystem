@@ -5,7 +5,9 @@
 body {
   margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  background-color: #f5f5f5;
+  /* No background-color here: MUI CssBaseline paints `background.default`,
+     which follows the light/dark toggle. A hardcoded color would win over
+     the theme in dark mode. */
 }
 
 #root {

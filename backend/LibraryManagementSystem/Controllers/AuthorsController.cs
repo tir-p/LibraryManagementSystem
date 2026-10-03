@@ -1,13 +1,16 @@
 using LibraryManagementSystem.Application.DTOs;
 using LibraryManagementSystem.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LibraryManagementSystem.API.Controllers;
 
 // Thin HTTP layer: maps routes to service calls only.
 // Errors are handled globally (GlobalExceptionHandler): missing -> 404, rule broken -> 400.
+// Reads: Librarian + Assistant. Writes: Librarian only.
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class AuthorsController : ControllerBase
 {
     private readonly IAuthorService _service;
@@ -18,14 +21,17 @@ public class AuthorsController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = UserRoles.ReadOnly)]
     public async Task<ActionResult<IReadOnlyList<AuthorDto>>> GetAll()
         => Ok(await _service.GetAllAsync());
 
     [HttpGet("{id:guid}")]
+    [Authorize(Roles = UserRoles.ReadOnly)]
     public async Task<ActionResult<AuthorDto>> GetById(Guid id)
         => Ok(await _service.GetByIdAsync(id));
 
     [HttpPost]
+    [Authorize(Roles = UserRoles.Librarian)]
     public async Task<ActionResult<AuthorDto>> Create(CreateAuthorRequest request)
     {
         var dto = await _service.CreateAsync(request);
@@ -33,10 +39,12 @@ public class AuthorsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = UserRoles.Librarian)]
     public async Task<ActionResult<AuthorDto>> Update(Guid id, UpdateAuthorRequest request)
         => Ok(await _service.UpdateAsync(id, request));
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = UserRoles.Librarian)]
     public async Task<IActionResult> Delete(Guid id)
     {
         await _service.DeleteAsync(id);
