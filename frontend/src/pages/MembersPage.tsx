@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -7,40 +7,73 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Collapse,
   Container,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  MenuItem,
   TextField,
   Typography,
 } from '@mui/material';
-import { Add, Person, Refresh } from '@mui/icons-material';
-import { api, type Member } from '../api/library';
+import { Add, Download, Edit, ExpandMore, Person, Refresh } from '@mui/icons-material';
+import { api, type Loan, type Member } from '../api/library';
+import PaginationBar, { usePagination } from '../components/PaginationBar';
+import { dueLabel, exportCsv } from '../utils/libraryUtils';
+import {
+  LIMITS,
+  clearFieldError,
+  email as emailValidator,
+  phone as phoneValidator,
+  text,
+  type FieldErrors,
+} from '../utils/validation';
 
-// Members: list with active/inactive chips, add-member dialog, activate/deactivate.
-// Deactivating hides a member from the Rentals dropdown (backend also blocks them).
-export default function MembersPage() {
+// Members: search + active/inactive filter, add/edit dialog, activate/
+// deactivate. Backend UpdateMemberRequest edits names + phone (not email).
+export default function MembersPage({ canWrite }: { canWrite: boolean }) {
   // members = server list; loading/error = page status.
   const [members, setMembers] = useState<Member[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [sort, setSort] = useState<'name' | 'newest' | 'oldest'>('name');
+  // Loan history: which member card is expanded (loans are already loaded).
+  const [historyId, setHistoryId] = useState<string | null>(null);
 
   // Dialog visibility + one state per form field (controlled inputs).
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Member | null>(null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Change handler that also clears the field's validation error on edit,
+  // so fixed input immediately un-marks the field without re-submitting.
+  const onEdit =
+    (field: string, setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      setter(e.target.value);
+      clearFieldError(setFieldErrors, field);
+    };
 
   // Single loader reused by mount, Refresh button, create, and toggle.
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      setMembers(await api.getMembers());
+      const [m, l] = await Promise.all([
+        api.getMembers(),
+        api.getLoans().catch(() => [] as Loan[]),
+      ]);
+      setMembers(m);
+      setLoans(l);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load members.');
     } finally {
@@ -53,25 +86,145 @@ export default function MembersPage() {
     load();
   }, []);
 
-  // Validate -> POST -> close + clear form -> reload list so the row appears.
-  const handleCreate = async (e: React.FormEvent) => {
+  const activeCountByMember = useMemo(() => {
+    const map: Record<string, number> = {};
+    loans.forEach((l) => {
+      if (l.status === 'Active' || l.status === 'Overdue') {
+        map[l.memberId] = (map[l.memberId] ?? 0) + 1;
+      }
+    });
+    return map;
+  }, [loans]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return members.filter((m) => {
+      if (statusFilter === 'active' && !m.isActive) return false;
+      if (statusFilter === 'inactive' && m.isActive) return false;
+      if (!q) return true;
+      return (
+        m.fullName.toLowerCase().includes(q) ||
+        m.email.toLowerCase().includes(q) ||
+        (m.phone ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [members, query, statusFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    switch (sort) {
+      case 'newest':
+        return arr.sort(
+          (a, b) => +new Date(b.membershipDate) - +new Date(a.membershipDate),
+        );
+      case 'oldest':
+        return arr.sort(
+          (a, b) => +new Date(a.membershipDate) - +new Date(b.membershipDate),
+        );
+      default:
+        return arr.sort((a, b) => a.fullName.localeCompare(b.fullName));
+    }
+  }, [filtered, sort]);
+
+  // Loans grouped by member for the expandable history section.
+  const loansByMember = useMemo(() => {
+    const map: Record<string, Loan[]> = {};
+    loans.forEach((l) => {
+      (map[l.memberId] ??= []).push(l);
+    });
+    Object.values(map).forEach((list) =>
+      list.sort((a, b) => +new Date(b.borrowedAt) - +new Date(a.borrowedAt)),
+    );
+    return map;
+  }, [loans]);
+
+  const {
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    total,
+    totalPages,
+    paged,
+  } = usePagination(sorted, 8);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, statusFilter, sort, setPage]);
+
+  const handleExport = () => {
+    exportCsv(
+      'members.csv',
+      ['FullName', 'Email', 'Phone', 'MembershipDate', 'Status', 'ActiveRentals'],
+      sorted.map((m) => [
+        m.fullName,
+        m.email,
+        m.phone ?? '',
+        m.membershipDate ? new Date(m.membershipDate).toLocaleDateString() : '',
+        m.isActive ? 'Active' : 'Inactive',
+        activeCountByMember[m.id] ?? 0,
+      ]),
+    );
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setFirstName('');
+    setLastName('');
+    setEmail('');
+    setPhone('');
+    setFormError('');
+    setFieldErrors({});
+    setOpen(true);
+  };
+
+  const openEdit = (m: Member) => {
+    setEditing(m);
+    setFirstName(m.firstName);
+    setLastName(m.lastName);
+    setEmail(m.email);
+    setPhone(m.phone ?? '');
+    setFormError('');
+    setFieldErrors({});
+    setOpen(true);
+  };
+
+  // Validate every field locally (mirrors backend caps + guards), then
+  // POST/PUT -> close + clear form -> reload list so the row appears.
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
-    if (!firstName || !lastName || !email) {
-      setFormError('First name, last name and email are required.');
-      return;
-    }
+    const errs: FieldErrors = {};
+    const put = (field: string, msg: string | null) => {
+      if (msg) errs[field] = msg;
+    };
+    put('firstName', text(firstName, 'First name', LIMITS.firstName));
+    put('lastName', text(lastName, 'Last name', LIMITS.lastName));
+    // Email is immutable after creation (field is disabled when editing).
+    if (!editing) put('email', emailValidator(email));
+    put('phone', phoneValidator(phone));
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
     setSaving(true);
     try {
-      await api.createMember({ firstName, lastName, email, phone: phone || undefined });
+      if (editing) {
+        await api.updateMember(editing.id, {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          phone: phone.trim() || undefined,
+        });
+      } else {
+        await api.createMember({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim(),
+          phone: phone.trim() || undefined,
+        });
+      }
       setOpen(false);
-      setFirstName('');
-      setLastName('');
-      setEmail('');
-      setPhone('');
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Create failed.');
+      setFormError(err instanceof Error ? err.message : 'Save failed.');
     } finally {
       setSaving(false);
     }
@@ -91,17 +244,62 @@ export default function MembersPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <Person color="primary" />
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
-          Members ({members.length})
+          Members ({filtered.length}/{members.length})
         </Typography>
         <Button variant="outlined" size="small" onClick={load} startIcon={<Refresh />}>
           Refresh
         </Button>
-        <Button variant="contained" size="small" onClick={() => setOpen(true)} startIcon={<Add />}>
-          Add Member
+        <Button variant="outlined" size="small" onClick={handleExport} startIcon={<Download />} disabled={sorted.length === 0}>
+          Export
         </Button>
+        {canWrite && (
+          <Button variant="contained" size="small" onClick={openCreate} startIcon={<Add />}>
+            Add Member
+          </Button>
+        )}
+      </Box>
+
+      {!canWrite && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          You are signed in as Assistant (read-only). Sign in as a Librarian to manage members.
+        </Alert>
+      )}
+
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Search name, email, phone…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          size="small"
+          sx={{ flex: 2, minWidth: 200 }}
+        />
+        <TextField
+          select
+          label="Status"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          size="small"
+          sx={{ minWidth: 150 }}
+        >
+          <MenuItem value="all">All</MenuItem>
+          <MenuItem value="active">Active</MenuItem>
+          <MenuItem value="inactive">Inactive</MenuItem>
+        </TextField>
+        <TextField
+          select
+          label="Sort"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as typeof sort)}
+          size="small"
+          sx={{ minWidth: 150 }}
+        >
+          <MenuItem value="name">Name A–Z</MenuItem>
+          <MenuItem value="newest">Newest first</MenuItem>
+          <MenuItem value="oldest">Oldest first</MenuItem>
+        </TextField>
       </Box>
 
       {loading && (
@@ -109,71 +307,174 @@ export default function MembersPage() {
           <CircularProgress />
         </Box>
       )}
-      {!loading && error && <Alert severity="error">{error}</Alert>}
+      {!loading && error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {!loading && !error && filtered.length === 0 && (
+        <Alert severity="info">No members match the current search / filter.</Alert>
+      )}
 
       {!loading &&
         !error &&
-        members.map((m) => (
-          <Card key={m.id} variant="outlined" sx={{ mb: 1 }}>
-            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="subtitle1">{m.fullName}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {m.email}
-                </Typography>
-              </Box>
-              <Chip
-                label={m.isActive ? 'Active' : 'Inactive'}
-                size="small"
-                color={m.isActive ? 'success' : 'default'}
-              />
-              <Button size="small" variant="outlined" onClick={() => toggleActive(m)}>
-                {m.isActive ? 'Deactivate' : 'Reactivate'}
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
+        paged.map((m) => {
+          const history = loansByMember[m.id] ?? [];
+          const expanded = historyId === m.id;
+          return (
+            <Card key={m.id} variant="outlined" sx={{ mb: 1 }}>
+              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Box sx={{ flexGrow: 1, minWidth: 200 }}>
+                  <Typography variant="subtitle1">{m.fullName}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {m.email}
+                    {m.phone ? ` • ${m.phone}` : ''} • since{' '}
+                    {m.membershipDate
+                      ? new Date(m.membershipDate).toLocaleDateString()
+                      : '—'}
+                  </Typography>
+                  {(activeCountByMember[m.id] ?? 0) > 0 && (
+                    <Typography variant="caption" color="text.secondary">
+                      {activeCountByMember[m.id]} active rental(s)
+                    </Typography>
+                  )}
+                </Box>
+                <Chip
+                  label={m.isActive ? 'Active' : 'Inactive'}
+                  size="small"
+                  color={m.isActive ? 'success' : 'default'}
+                />
+                <Button
+                  size="small"
+                  variant="text"
+                  endIcon={
+                    <ExpandMore
+                      sx={{
+                        transform: expanded ? 'rotate(180deg)' : undefined,
+                        transition: 'transform 0.2s',
+                      }}
+                    />
+                  }
+                  onClick={() => setHistoryId(expanded ? null : m.id)}
+                >
+                  History ({history.length})
+                </Button>
+                {canWrite && (
+                  <>
+                    <Button size="small" variant="outlined" startIcon={<Edit />} onClick={() => openEdit(m)}>
+                      Edit
+                    </Button>
+                    <Button size="small" variant="outlined" onClick={() => toggleActive(m)}>
+                      {m.isActive ? 'Deactivate' : 'Reactivate'}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+              <Collapse in={expanded} timeout="auto" unmountOnExit>
+                <Box sx={{ px: 2, pb: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {history.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No rentals yet for this member.
+                    </Typography>
+                  ) : (
+                    history.map((l) => (
+                      <Box
+                        key={l.id}
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                      >
+                        <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                          {l.bookTitle ?? 'Unknown title'} • Copy {l.barcode ?? l.bookCopyId}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color={l.status === 'Overdue' ? 'error' : 'text.secondary'}
+                        >
+                          {dueLabel(l.dueDate, l.status, l.returnedAt)}
+                        </Typography>
+                        <Chip
+                          label={l.status}
+                          size="small"
+                          color={
+                            l.status === 'Active'
+                              ? 'primary'
+                              : l.status === 'Overdue'
+                                ? 'error'
+                                : 'default'
+                          }
+                        />
+                      </Box>
+                    ))
+                  )}
+                </Box>
+              </Collapse>
+            </Card>
+          );
+        })}
+
+      {!loading && !error && total > 0 && (
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => {
+            setPageSize(n);
+            setPage(1);
+          }}
+        />
+      )}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add member</DialogTitle>
-        <Box component="form" onSubmit={handleCreate}>
+        <DialogTitle>{editing ? 'Edit member' : 'Add member'}</DialogTitle>
+        <Box component="form" onSubmit={handleSave}>
           <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {formError && <Alert severity="error">{formError}</Alert>}
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label="First name"
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                onChange={onEdit('firstName', setFirstName)}
                 required
                 fullWidth
+                error={!!fieldErrors.firstName}
+                helperText={fieldErrors.firstName}
+                slotProps={{ htmlInput: { maxLength: LIMITS.firstName } }}
               />
               <TextField
                 label="Last name"
                 value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                onChange={onEdit('lastName', setLastName)}
                 required
                 fullWidth
+                error={!!fieldErrors.lastName}
+                helperText={fieldErrors.lastName}
+                slotProps={{ htmlInput: { maxLength: LIMITS.lastName } }}
               />
             </Box>
             <TextField
               label="Email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={onEdit('email', setEmail)}
               required
               fullWidth
+              disabled={!!editing}
+              error={!!fieldErrors.email}
+              helperText={fieldErrors.email ?? (editing ? 'Email cannot be changed after creation.' : undefined)}
+              slotProps={{ htmlInput: { maxLength: LIMITS.email } }}
             />
             <TextField
               label="Phone (optional)"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={onEdit('phone', setPhone)}
               fullWidth
+              error={!!fieldErrors.phone}
+              helperText={fieldErrors.phone}
+              slotProps={{ htmlInput: { maxLength: LIMITS.phone } }}
             />
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpen(false)}>Cancel</Button>
             <Button type="submit" variant="contained" disabled={saving}>
-              {saving ? <CircularProgress size={20} /> : 'Save member'}
+              {saving ? <CircularProgress size={20} /> : editing ? 'Save changes' : 'Save member'}
             </Button>
           </DialogActions>
         </Box>

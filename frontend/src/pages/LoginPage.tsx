@@ -12,16 +12,21 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { Visibility, VisibilityOff, LibraryBooks } from '@mui/icons-material';
+import { api, setStoredAuth, type AuthUser } from '../api/library';
 
-// Hardcoded demo account - replace with backend call later
-export const DEMO_EMAIL = 'admin@library.com';
-export const DEMO_PASSWORD = 'admin123';
+// Demo staff accounts (seeded by the backend AuthService, overridable via
+// appsettings Auth section). Librarian = full write access,
+// Assistant = read-only (GETs only, writes return 403).
+export const LIBRARIAN_EMAIL = 'librarian@library.com';
+export const LIBRARIAN_PASSWORD = 'Librarian123!';
+export const ASSISTANT_EMAIL = 'assistant@library.com';
+export const ASSISTANT_PASSWORD = 'Assistant123!';
 
-// Demo-only login: credentials are checked locally, no backend call yet.
+// Backend login: POST /api/auth/login mints a JWT with the role claim.
 // Props = inputs a parent passes in. Here App gives us `onLogin`, a callback
 // we invoke on success so App can switch from login screen to the main UI.
 type LoginPageProps = {
-  onLogin: (email: string) => void;
+  onLogin: (user: AuthUser) => void;
 };
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -34,11 +39,33 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Single login path used by both the form and the one-click demo buttons.
+  const doLogin = async (e: string, p: string) => {
+    setError('');
+    setLoading(true);
+    try {
+      const user: AuthUser = await api.login(e, p);
+      setStoredAuth(user);
+      onLogin(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // One-click demo sign-in: fills the form AND submits against the backend,
+  // so each role is a single click. Errors surface in the same banner.
+  const quickLogin = (e: string, p: string) => {
+    setEmail(e);
+    setPassword(p);
+    void doLogin(e, p);
+  };
+
   // Form submit handler. preventDefault() stops the browser's native
   // full-page-reload form behavior so React stays in control.
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
 
     // Validate locally before any network call to fail fast with clear messages.
     // `return` exits early: nothing below runs when validation fails.
@@ -51,21 +78,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return;
     }
 
-    // Fake async login: setLoading disables the button + shows a spinner,
-    // finally always resets loading whether login succeeded or failed.
-    setLoading(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
-        onLogin(email);
-      } else {
-        setError('Invalid email or password. Try the demo account above.');
-      }
-    } catch {
-      setError('Login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    void doLogin(email.trim(), password);
   };
 
   return (
@@ -85,13 +98,34 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               Library Login
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sign in to manage books
+              Sign in with your staff account
             </Typography>
           </Box>
 
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Demo login — Email: {DEMO_EMAIL} / Password: {DEMO_PASSWORD}
+          <Alert severity="info" sx={{ mb: 1 }}>
+            Librarian (full access) — {LIBRARIAN_EMAIL} / {LIBRARIAN_PASSWORD}
           </Alert>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Assistant (read-only) — {ASSISTANT_EMAIL} / {ASSISTANT_PASSWORD}
+          </Alert>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              disabled={loading}
+              onClick={() => quickLogin(LIBRARIAN_EMAIL, LIBRARIAN_PASSWORD)}
+            >
+              Sign in as Librarian
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={loading}
+              onClick={() => quickLogin(ASSISTANT_EMAIL, ASSISTANT_PASSWORD)}
+            >
+              Sign in as Assistant
+            </Button>
+          </Box>
 
           {/* Conditional rendering: {error && (...)} shows the Alert only when
               error is a non-empty string, otherwise renders nothing. */}
@@ -137,7 +171,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               }}
             />
             {/* Ternary in JSX: while loading show a spinner, else the label.
-                disabled={loading} blocks double-submits during the fake delay. */}
+                disabled={loading} blocks double-submits during login. */}
             <Button
               type="submit"
               variant="contained"
