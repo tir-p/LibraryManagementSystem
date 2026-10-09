@@ -1,3 +1,10 @@
+/**
+ * MembersPage.tsx — Member directory with search/status/sort, add/edit, activate/deactivate, loan history, CSV export.
+ * Junior-dev guide:
+ * - Props: canWrite gates Add/Edit/Activate buttons (Assistants read-only).
+ * - State: members + loans lists, filters, expandable historyId, dialog + form fields.
+ * - Loans are pre-loaded once so per-member history needs no extra fetch.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -32,6 +39,10 @@ import {
 
 // Members: search + active/inactive filter, add/edit dialog, activate/
 // deactivate. Backend UpdateMemberRequest edits names + phone (not email).
+/**
+ * MembersPage — Searchable member list with expandable rental history and status toggling.
+ * @param canWrite Shows Add/Edit/Deactivate buttons only for Librarians.
+ */
 export default function MembersPage({ canWrite }: { canWrite: boolean }) {
   // members = server list; loading/error = page status.
   const [members, setMembers] = useState<Member[]>([]);
@@ -64,6 +75,7 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     };
 
   // Single loader reused by mount, Refresh button, create, and toggle.
+  /** API call: fetch members + loans together; loans power history + active counts. */
   const load = async () => {
     setLoading(true);
     setError('');

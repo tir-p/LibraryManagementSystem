@@ -1,3 +1,10 @@
+/**
+ * AuthorsPage.tsx — CRUD UI for authors (search list + add/edit dialog + delete confirm).
+ * Junior-dev guide:
+ * - Props: canWrite=false hides mutation buttons for the Assistant role.
+ * - State: authors list, loading/error flags, search query, dialog + form fields.
+ * - useEffect([]) loads once on mount; useMemo filters by query; usePagination slices pages.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -28,12 +35,18 @@ import {
 
 // Authors: full CRUD against /api/authors. Deleting an author that still
 // has books fails on the backend (FK) — the error banner shows the message.
+/**
+ * AuthorsPage — Lists, searches, creates, edits, and deletes authors.
+ * @param canWrite True for Librarians (shows Add/Edit/Delete); false for read-only Assistants.
+ */
 export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
+  // Server list + page status: authors array, spinner flag, banner error text.
   const [authors, setAuthors] = useState<Author[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
 
+  // Dialog + form state: open flag, editing target (null = create), per-field inputs, save spinner + errors.
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Author | null>(null);
   const [name, setName] = useState('');
@@ -52,6 +65,7 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
   const [confirmDelete, setConfirmDelete] = useState<Author | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  /** API call: fetch all authors, showing spinner and error banner as needed. Reused by mount + Refresh + save/delete. */
   const load = async () => {
     setLoading(true);
     setError('');
@@ -64,9 +78,12 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     }
   };
 
+  // useEffect with [] = run once on mount (fetch-on-load pattern).
   useEffect(() => {
     load();
   }, []);
+
+  // useMemo: derived filtered list (recomputed only when authors/query change).
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,9 +101,12 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     paged,
   } = usePagination(filtered, 8);
 
+  // useEffect: reset to page 1 whenever the search query changes (avoids empty page after narrowing).
   useEffect(() => {
     setPage(1);
   }, [query, setPage]);
+
+  // Event handler: open blank dialog for creating a new author.
 
   const openCreate = () => {
     setEditing(null);

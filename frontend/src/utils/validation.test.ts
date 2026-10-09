@@ -1,3 +1,10 @@
+/**
+ * validation.test.ts — Vitest coverage for field validators + borrow policy + dueLabel.
+ * Junior-dev guide:
+ * - Each describe groups one validator (text, email, isbn, year/pages, imageUrl, phone/barcode/shelf, loanDays, dateOfBirth).
+ * - Convention: validators return null when valid, else an error message string.
+ * - Last suites pin backend parity (MAX_ACTIVE_LOANS=5) and dueLabel formatting.
+ */
 import { describe, expect, it } from 'vitest';
 import {
   LIMITS,
@@ -16,6 +23,7 @@ import {
 } from './validation';
 import { dueLabel as loanDueLabel } from './libraryUtils';
 
+// Suite: required-text helper (blank rejected, over-cap rejected, exact-cap accepted).
 describe('text validator (required + DB cap)', () => {
   it('rejects blank values', () => {
     expect(text('', 'Title', 200)).toBe('Title is required.');
@@ -34,6 +42,7 @@ describe('text validator (required + DB cap)', () => {
   });
 });
 
+// Suite: email format + required + DB cap (mirrors backend member email rules).
 describe('email validator', () => {
   it('rejects blank and malformed addresses', () => {
     expect(email('')).toBe('Email is required.');
@@ -52,6 +61,7 @@ describe('email validator', () => {
   });
 });
 
+// Suite: ISBN-10/13 digits-only check (hyphens stripped before validation).
 describe('isbn validator', () => {
   it('rejects blank values', () => {
     expect(isbn('')).toBe('ISBN is required.');
@@ -72,6 +82,7 @@ describe('isbn validator', () => {
   });
 });
 
+// Suite: numeric guards — year must be whole 1000..next-year, pages 1..10,000 whole.
 describe('year / pages validators', () => {
   it('rejects non-integers and out-of-range years', () => {
     expect(year('abc')).toBe('Year must be a whole number.');
@@ -92,6 +103,7 @@ describe('year / pages validators', () => {
   });
 });
 
+// Suite: optional cover-image URL (empty allowed, else must be http/https URL).
 describe('imageUrl validator', () => {
   it('allows empty (optional field)', () => {
     expect(imageUrl('')).toBeNull();
@@ -110,6 +122,7 @@ describe('imageUrl validator', () => {
   });
 });
 
+// Suite: phone (optional, charset + 20-cap), barcode (required, 50-cap), shelf (optional).
 describe('phone / barcode / shelf validators', () => {
   it('allows empty optional phone and shelf', () => {
     expect(phone('')).toBeNull();
@@ -132,6 +145,7 @@ describe('phone / barcode / shelf validators', () => {
   });
 });
 
+// Suite: loanDays 1..365 whole numbers (default rental is 14 days).
 describe('loanDays validator', () => {
   it('rejects zero, negatives, fractions, and absurd values', () => {
     expect(loanDays(0)).toMatch(/between 1 and/);
@@ -145,6 +159,7 @@ describe('loanDays validator', () => {
   });
 });
 
+// Suite: optional birth date (empty/past allowed, future/garbage rejected).
 describe('dateOfBirth validator', () => {
   it('allows empty and past dates', () => {
     expect(dateOfBirth('')).toBeNull();
@@ -157,12 +172,14 @@ describe('dateOfBirth validator', () => {
   });
 });
 
+// Suite: borrow-policy constant must stay in sync with backend Member.CanBorrow cap (5).
 describe('borrow policy constants', () => {
   it('matches the backend Member.CanBorrow default cap of 5', () => {
     expect(MAX_ACTIVE_LOANS).toBe(5);
   });
 });
 
+// Suite: dueLabel display helper (Returned label vs "N days overdue").
 describe('dueLabel (libraryUtils)', () => {
   it('labels returned loans by return date', () => {
     expect(loanDueLabel('2026-01-01', 'Returned', '2026-01-05')).toContain('Returned');

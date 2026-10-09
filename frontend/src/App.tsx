@@ -1,3 +1,10 @@
+/**
+ * App.tsx — Root shell: theme, auth gate, top nav tabs, and lazy page routing.
+ * Junior-dev guide:
+ * - No react-router; `page` string state picks which page component mounts.
+ * - Auth session lives here; logged-out users only see <LoginPage/>.
+ * - Pages are React.lazy() chunks; ErrorBoundary isolates per-tab crashes.
+ */
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   AppBar,
@@ -37,10 +44,17 @@ const MembersPage = lazy(() => import('./pages/MembersPage'));
 const AuthorsPage = lazy(() => import('./pages/AuthorsPage'));
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage'));
 
+/**
+ * Page — Tab identifiers used as a tiny client-side router (value of `page` state).
+ */
 export type Page = 'dashboard' | 'books' | 'rentals' | 'members' | 'authors' | 'categories';
 
-const THEME_KEY = 'libraryTheme';
+const THEME_KEY = 'libraryTheme'; // localStorage key for persisted light/dark choice.
 
+/**
+ * App — Top-level component: provides MUI theme, nav bar, tab switching, and login gate.
+ * @returns The full app UI (login screen when logged out, tabbed shell when logged in).
+ */
 function App() {
   // Auth session: null = logged out, AuthUser = JWT + email + role.
   // Lazy initializer reads localStorage only once on first render.
@@ -57,6 +71,7 @@ function App() {
   const [openCount, setOpenCount] = useState(0);
   const [overdueCount, setOverdueCount] = useState(0);
 
+  // useMemo: rebuild the MUI theme object only when `mode` flips (perf: avoids re-render churn).
   const theme = useMemo(
     () =>
       createTheme({
@@ -69,6 +84,7 @@ function App() {
     [mode],
   );
 
+  // useEffect: side-effect that fetches loans after login/tab change to refresh the Rentals badge counts.
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -95,6 +111,7 @@ function App() {
   // also rejects their writes with 403, so this is defense in depth).
   const canWrite = isLibrarian(user);
 
+  // Event handler: flips light/dark mode and persists the choice to localStorage.
   const toggleMode = () => {
     setMode((m) => {
       const next = m === 'light' ? 'dark' : 'light';

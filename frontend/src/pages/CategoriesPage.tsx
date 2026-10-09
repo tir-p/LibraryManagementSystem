@@ -1,3 +1,10 @@
+/**
+ * CategoriesPage.tsx — CRUD UI for book categories (search list + add/edit dialog + delete confirm).
+ * Junior-dev guide:
+ * - Props: canWrite hides Add/Edit/Delete for read-only Assistants.
+ * - State: categories list, loading/error, query, dialog fields, validation errors.
+ * - Pattern mirrors AuthorsPage: load-on-mount, useMemo filter, usePagination slice.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -28,7 +35,12 @@ import {
 
 // Categories: full CRUD against /api/categories. Same delete caveat as
 // authors — books referencing a category block its deletion (FK).
+/**
+ * CategoriesPage — Lists, searches, creates, edits, and deletes categories.
+ * @param canWrite True for Librarians; false hides mutation buttons for Assistants.
+ */
 export default function CategoriesPage({ canWrite }: { canWrite: boolean }) {
+  // Server list + status flags: categories array, spinner, error banner, search query.
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,6 +63,7 @@ export default function CategoriesPage({ canWrite }: { canWrite: boolean }) {
   const [confirmDelete, setConfirmDelete] = useState<Category | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  /** API call: fetch all categories; reused by mount, Refresh button, and after save/delete. */
   const load = async () => {
     setLoading(true);
     setError('');

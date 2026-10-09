@@ -1,3 +1,10 @@
+/**
+ * DashboardPage.tsx — At-a-glance stats (titles, copies, members, rentals), charts, and overdue list.
+ * Junior-dev guide:
+ * - Props: go(page) navigates by setting App's tab state (tiny router).
+ * - State: counts object + raw lists for charts + overdue loans with pagination.
+ * - Data: Promise.all loads books/availability/members/loans; no dedicated stats endpoint.
+ */
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -29,9 +36,15 @@ const DashboardCharts = lazy(() => import('../components/DashboardCharts'));
 
 // Dashboard: at-a-glance counts + overdue list. All data comes from the
 // same endpoints the other pages use — no dedicated stats endpoint needed.
+/** Page — Tab ids accepted by the go() navigator (mirrors App.tsx Page type). */
 type Page = 'dashboard' | 'books' | 'rentals' | 'members' | 'authors' | 'categories';
 
+/**
+ * DashboardPage — Shows count cards, lazy charts, and paginated overdue rentals.
+ * @param go Callback to switch App tabs when a count card is clicked.
+ */
 export default function DashboardPage({ go }: { go: (p: Page) => void }) {
+  // Loading/error flags + counts object (titles, copies, members, active/overdue loans).
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [counts, setCounts] = useState({
@@ -49,6 +62,7 @@ export default function DashboardPage({ go }: { go: (p: Page) => void }) {
   const [chartLoans, setChartLoans] = useState<Loan[]>([]);
   const [chartAvail, setChartAvail] = useState<BookAvailability[]>([]);
 
+  /** API call: parallel fetch of books/availability/members/loans, then derive counts + chart lists. */
   const load = async () => {
     setLoading(true);
     setError('');

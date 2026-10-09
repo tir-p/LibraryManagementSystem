@@ -1,3 +1,10 @@
+/**
+ * BooksPage.tsx — Book catalog with search/filters/sort, add/edit/delete, copy management, CSV export.
+ * Junior-dev guide:
+ * - Props: canWrite gates Add/Edit/Delete/Copy buttons (Assistants are read-only).
+ * - State: server lists (books/authors/categories/counts), filters, dialogs, form + validation errors.
+ * - Effects: loadAll() on mount; setPage(1) on filter change. Filtering/sorting/pagination are client-side.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -39,6 +46,7 @@ import {
 // Books catalog: search + author/category/availability filters, add/edit/
 // delete dialogs, and a detail dialog showing physical copies.
 // CopyCount maps book.id -> counts so each card renders without its own fetch.
+/** CopyCount — Aggregated stock for one title (total vs currently borrowable). */
 type CopyCount = { total: number; available: number };
 
 const emptyForm = {
@@ -57,6 +65,10 @@ const emptyForm = {
 // canWrite = false for the Assistant role: hides every mutation button
 // (Add/Edit/Delete/Copy). The backend independently rejects such calls
 // with 403, so the UI gating is defense in depth.
+/**
+ * BooksPage — Main catalog UI with filtering, sorting, pagination, and copy handling.
+ * @param canWrite Librarian-only flag that shows mutation buttons when true.
+ */
 export default function BooksPage({ canWrite }: { canWrite: boolean }) {
   // Server data (loaded once on mount) + page status flags.
   const [books, setBooks] = useState<Book[]>([]);
@@ -97,6 +109,7 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
   // Loads everything in parallel (Promise.all) instead of sequentially.
   // Availability comes from ONE /books/availability call (not one per book).
   // try/catch/finally: error banner on failure, spinner always stops.
+  /** API call: load books + authors + categories + availability in parallel; rebuilds copyCounts map. */
   const loadAll = async () => {
     setLoading(true);
     setError('');
@@ -185,7 +198,9 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
     setPage(1);
   }, [query, authorFilter, categoryFilter, availFilter, sort, setPage]);
 
+  // useEffect with [] runs once after first render = "on page load" (see loadAll effect above).
   // CSV export covers the whole filtered set (not just the visible page).
+  // Event handler: export the current filtered+sorted list to books.csv.
   const handleExport = () => {
     exportCsv(
       'books.csv',

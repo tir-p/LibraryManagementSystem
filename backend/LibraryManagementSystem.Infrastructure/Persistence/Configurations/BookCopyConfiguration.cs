@@ -1,14 +1,31 @@
+// ---------------------------------------------------------------------------
+// File: BookCopyConfiguration.cs
+// Purpose: EF Core mapping for BookCopy (physical, borrowable item).
+// Layer: Infrastructure / Persistence / Configurations.
+// For juniors: Shows enum-to-string conversion, unique barcode index, and how
+//   to ignore computed properties (IsAvailable) that EF should not map.
+// ---------------------------------------------------------------------------
 using LibraryManagementSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace LibraryManagementSystem.Infrastructure.Persistence.Configurations;
 
+/// <summary>
+/// EF Core mapping for BookCopy (physical item with barcode and status).
+/// </summary>
+/// <remarks>For juniors: Shows enum-to-string and ignoring computed props.</remarks>
 // Maps BookCopy (physical item): unique barcode, enum stored as string, computed prop ignored.
 public class BookCopyConfiguration : IEntityTypeConfiguration<BookCopy>
 {
+    /// <summary>
+    /// Configures BookCopy columns, barcode uniqueness, and Book/Loan links.
+    /// </summary>
+    /// <param name="builder">EF builder for BookCopy (fluent API).</param>
     public void Configure(EntityTypeBuilder<BookCopy> builder)
     {
+        // Fluent API: maps physical copy fields and links.
+        // Primary key (BaseEntity.Id).
         builder.HasKey(x => x.Id);
 
         // Physical label. Unique so two copies never share a barcode.

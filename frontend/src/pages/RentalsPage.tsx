@@ -1,3 +1,11 @@
+/**
+ * RentalsPage.tsx — Borrow form (member + book + copy dropdowns) plus filterable/sortable loan list.
+ * Junior-dev guide:
+ * - Key rule: you borrow a COPY (barcode), not a title — one book has many copies.
+ * - Props: canWrite gates borrow/renew/return (Assistants see read-only list).
+ * - State: loans/members/books/copies, list filters, borrow-form fields, action spinners.
+ * - Effects: loadBase on mount; loadCopies whenever selected bookId changes.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -22,6 +30,10 @@ import { MAX_ACTIVE_LOANS, loanDays as loanDaysValidator } from '../utils/valida
 // with status filter + text search. Overdue loans are flagged by the backend
 // on read (LoanService.RefreshOverdueAsync), so status is never stale.
 // Key domain rule: you borrow a COPY (barcode), not a title — one book has many copies.
+/**
+ * RentalsPage — Borrow workflow plus loan tracking with return/renew actions.
+ * @param canWrite Librarian-only flag for borrow/renew/return buttons.
+ */
 export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
   // Base lists for the form and rows below.
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -47,6 +59,7 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
   const [actingId, setActingId] = useState<string | null>(null);
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
+  /** API call: load loans + members + books for the form dropdowns and the list below. */
   const loadBase = async () => {
     setLoading(true);
     setError('');

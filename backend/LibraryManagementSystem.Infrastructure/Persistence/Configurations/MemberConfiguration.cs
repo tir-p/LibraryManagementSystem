@@ -1,16 +1,34 @@
+// ---------------------------------------------------------------------------
+// File: MemberConfiguration.cs
+// Purpose: EF Core mapping for the Member entity (identity + loan history).
+// Layer: Infrastructure / Persistence / Configurations.
+// For juniors: Shows unique email index for login identity and ignoring the
+//   computed FullName property so EF does not try to map it.
+// ---------------------------------------------------------------------------
 using LibraryManagementSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace LibraryManagementSystem.Infrastructure.Persistence.Configurations;
 
+/// <summary>
+/// EF Core mapping for Member (identity via unique email + loan history).
+/// </summary>
+/// <remarks>For juniors: Unique email = one account; FullName is ignored.</remarks>
 // Maps Member: unique email for login/identity, computed FullName ignored.
 public class MemberConfiguration : IEntityTypeConfiguration<Member>
 {
+    /// <summary>
+    /// Configures Member columns and the one-to-many Loans relationship.
+    /// </summary>
+    /// <param name="builder">EF builder for Member (fluent API).</param>
     public void Configure(EntityTypeBuilder<Member> builder)
     {
+        // Fluent API: maps member identity fields.
+        // Primary key (BaseEntity.Id).
         builder.HasKey(x => x.Id);
 
+        // Required first/last names for FullName + display.
         builder.Property(x => x.FirstName)
             .IsRequired()
             .HasMaxLength(50);

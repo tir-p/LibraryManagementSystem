@@ -1,16 +1,34 @@
+// ---------------------------------------------------------------------------
+// File: BookConfiguration.cs
+// Purpose: EF Core mapping for the Book catalog entry (ISBN, links, copies).
+// Layer: Infrastructure / Persistence / Configurations.
+// For juniors: Defines constraints (required, max length, unique ISBN) and
+//   relationships to Author, Category, and BookCopy.
+// ---------------------------------------------------------------------------
 using LibraryManagementSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace LibraryManagementSystem.Infrastructure.Persistence.Configurations;
 
+/// <summary>
+/// EF Core mapping for Book (catalog entry with ISBN, Author, Category, Copies).
+/// </summary>
+/// <remarks>For juniors: Enforces unique ISBN and link rules to keep catalog clean.</remarks>
 // Maps Book (catalog entry): unique ISBN, links to Author/Category, owns its physical Copies.
 public class BookConfiguration : IEntityTypeConfiguration<Book>
 {
+    /// <summary>
+    /// Configures Book columns, indexes, and relationships.
+    /// </summary>
+    /// <param name="builder">EF builder for Book (fluent API).</param>
     public void Configure(EntityTypeBuilder<Book> builder)
     {
+        // Fluent API: each builder call maps one column/relation to the DB.
+        // Primary key (BaseEntity.Id).
         builder.HasKey(x => x.Id);
 
+        // Required title, capped at 200 chars -> NVARCHAR(200) NOT NULL.
         builder.Property(x => x.Title)
             .IsRequired()
             .HasMaxLength(200);

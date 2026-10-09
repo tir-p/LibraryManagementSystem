@@ -1,3 +1,9 @@
+/**
+ * main.tsx — Vite entry point: mounts <App/> into <div id="root"> inside index.html.
+ * Junior-dev guide:
+ * - createRoot().render() starts React; StrictMode double-invokes effects in dev to surface bugs.
+ * - Global CSS import + theme (light/dark) lives in App.tsx.
+ */
 // Entry point: Vite loads index.html -> src/main.tsx -> <App />.
 // createRoot mounts React inside the <div id="root"> element.
 // StrictMode double-runs effects in dev to surface bugs early (no effect in production).

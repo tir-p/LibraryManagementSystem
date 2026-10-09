@@ -1,3 +1,10 @@
+/**
+ * DashboardCharts.tsx — Three recharts visuals for the dashboard (category bars, monthly borrows, stock donut).
+ * Junior-dev guide:
+ * - Pure presentational: all data arrives via props, no fetch() here.
+ * - useMemo aggregates books/loans/availability so recalculation only runs when inputs change.
+ * - ResponsiveContainer makes each chart fill its Card.
+ */
 import { useMemo } from 'react';
 import { Box, Card, CardContent, Grid, Typography, useTheme } from '@mui/material';
 import {
@@ -19,13 +26,23 @@ import { truncate } from '../utils/libraryUtils';
 // Lazy-loaded (see DashboardPage): recharts stays out of the initial bundle
 // and is fetched only when the dashboard mounts. All data comes from props —
 // no extra API calls, just aggregation of already-loaded lists.
+/**
+ * Props — Pre-loaded lists passed from DashboardPage (already fetched, just aggregated here).
+ */
 type Props = {
   books: Book[];
   loans: Loan[];
   availability: BookAvailability[];
 };
 
+/**
+ * DashboardCharts — Renders category bar chart, 6-month borrow chart, and availability donut.
+ * @param books Full book list for per-category counts.
+ * @param loans Full loan list for monthly borrow buckets.
+ * @param availability Per-title stock rows for the available vs on-loan split.
+ */
 export default function DashboardCharts({ books, loans, availability }: Props) {
+  // useTheme: pull palette colors so charts follow light/dark mode automatically.
   const theme = useTheme();
   const tick = { fill: theme.palette.text.secondary, fontSize: 12 };
   const tooltipStyle = {
