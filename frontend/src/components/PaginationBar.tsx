@@ -1,3 +1,9 @@
+/**
+ * PaginationBar.tsx — Reusable client-side pagination hook + footer UI.
+ * Junior-dev guide:
+ * - Backend has no ?page query params, so each page slices its filtered array locally.
+ * - usePagination owns page/pageSize state; PaginationBar only renders controls.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { Box, MenuItem, Pagination, TextField, Typography } from '@mui/material';
 
@@ -5,6 +11,12 @@ import { Box, MenuItem, Pagination, TextField, Typography } from '@mui/material'
 // so every page slices its already-filtered array locally.
 // usePagination clamps + resets the page whenever the item list shrinks
 // (e.g. after a search) so you never land on an empty page.
+/**
+ * usePagination — Slice any array into pages with auto-clamping.
+ * @param items Full (already filtered/sorted) array to paginate.
+ * @param initialPageSize Rows per page on first render (default 8).
+ * @returns page state, setters, totals, current slice `paged`, and resetPage().
+ */
 export function usePagination<T>(items: T[], initialPageSize = 8) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -27,6 +39,9 @@ export function usePagination<T>(items: T[], initialPageSize = 8) {
   return { page, setPage, pageSize, setPageSize, total, totalPages, paged, resetPage };
 }
 
+/**
+ * PaginationBarProps — Controlled inputs for the footer row (owned by usePagination in the parent).
+ */
 type PaginationBarProps = {
   page: number;
   totalPages: number;
@@ -39,6 +54,16 @@ type PaginationBarProps = {
 
 // Footer row: "Showing X–Y of Z" + page-size dropdown + MUI Pagination.
 // Renders nothing when there is only one page (avoids visual noise).
+/**
+ * PaginationBar — Footer showing "Showing X–Y of Z" + per-page dropdown + page buttons.
+ * @param page Current 1-based page number.
+ * @param totalPages Total pages for current pageSize.
+ * @param total Total item count.
+ * @param pageSize Current rows-per-page.
+ * @param onPageChange Callback when user picks a new page.
+ * @param onPageSizeChange Callback when user picks a new page size.
+ * @param pageSizeOptions Dropdown choices (default [5,8,10,20,50]).
+ */
 export default function PaginationBar({
   page,
   totalPages,

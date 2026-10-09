@@ -1,3 +1,9 @@
+// ---------------------------------------------------------------------------
+// File: Program.cs
+// Purpose: Composition root (minimal-API bootstrap) — wires DI, JWT auth, CORS,
+//   EF Core, middleware pipeline, and startup seeding. The ONLY place that
+//   knows all layers; layers themselves depend only on abstractions.
+// ---------------------------------------------------------------------------
 using System.Text;
 using LibraryManagementSystem.API.Middleware;
 using LibraryManagementSystem.API.Services;
@@ -16,6 +22,7 @@ using Scalar.AspNetCore;
 // layers themselves only depend on abstractions (interfaces).
 var builder = WebApplication.CreateBuilder(args);
 
+// DI: controllers are instantiated per-request with services injected via constructors.
 builder.Services.AddControllers();
 // Use cases (BookService, LoanService...).
 builder.Services.AddApplication();
@@ -24,6 +31,9 @@ builder.Services.AddSingleton<IAuthService, AuthService>();
 // Staff JWT auth: Librarian (full access) + Assistant (read-only, enforced
 // per-endpoint with [Authorize(Roles = ...)]). Demo credentials live in
 // appsettings Auth section; signing key in Jwt:Key (use secrets in prod).
+// JWT logic: bearer tokens signed with symmetric key (Jwt:Key). Issuer/audience/
+// lifetime all validated; 1-min ClockSkew tolerates small server clock drift.
+// Auth wiring: AddAuthentication selects JwtBearer; AddAuthorization enables [Authorize].
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 builder.Services
@@ -46,6 +56,8 @@ builder.Services.AddAuthorization();
 // DbContext + generic repositories (connection string from appsettings.json).
 builder.Services.AddInfrastructure(builder.Configuration);
 // Maps exceptions to HTTP codes (404 / 400 / 500) so controllers need no try/catch.
+// Error handling: AddProblemDetails + AddExceptionHandler route all unhandled
+// exceptions to GlobalExceptionHandler (404/400/500 JSON), so controllers need no try/catch.
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddOpenApi();
@@ -77,7 +89,8 @@ builder.Services.AddCors((options) =>
 
 var app = builder.Build();
 
-// Apply migrations + seed programming books / Atomic Habits on startup.
+// Startup step: run EF migrations then seed demo data before serving traffic.
+// CreateScope = short-lived DI scope for scoped DbContext outside a request.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<LibraryDbContext>();
@@ -95,6 +108,9 @@ if (app.Environment.IsDevelopment())
 // link generation) must see the proxy's original scheme/host, not the
 // internal HTTP hop.
 // Exception handler next so even CORS/HTTPS-redirect errors become JSON.
+// Middleware pipeline (order matters — each step wraps the next):
+// 1) ForwardedHeaders 2) ExceptionHandler (JSON errors) 3) HttpsRedirection (prod only)
+// 4) CORS 5) Authentication (who are you?) 6) Authorization (what may you do?) 7) Controllers.
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 
@@ -107,9 +123,11 @@ if (!app.Environment.IsDevelopment())
 
 app.UseCors("AllowFrontend");
 
+// Auth middleware: reads Bearer JWT into HttpContext.User (must run before Authorization).
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Endpoint routing: maps api/[controller] routes to controller actions.
 app.MapControllers();
 
 app.Run();

@@ -1,7 +1,15 @@
+/**
+ * library.ts — Central API client for the Library frontend.
+ * Junior-dev guide:
+ * - All fetch() calls live here so pages never hardcode URLs.
+ * - Mirrors backend C# DTOs in camelCase (ASP.NET serializes that way).
+ * - Handles JWT auth (localStorage) and shared error parsing.
+ */
 // All backend calls live here so pages never hardcode URLs.
 // Backend runs on http://localhost:5008 in dev (see backend launchSettings.json).
 // Types below mirror the C# DTO records (e.g. BookDto) but in camelCase,
 // because ASP.NET serializes JSON property names as camelCase by default.
+/** Base URL for the backend API. Reads VITE_API_URL env var, falls back to localhost:5008 for local dev. */
 export const API_BASE_URL =
   (import.meta as unknown as { env?: Record<string, string | undefined> }).env
     ?.VITE_API_URL || 'http://localhost:5008';
@@ -10,6 +18,13 @@ export const API_BASE_URL =
 // role claim ("Librarian" = full access, "Assistant" = read-only GETs).
 // The token is stored in localStorage and sent as `Authorization: Bearer …`
 // on every request by req() below.
+/**
+ * AuthUser — Logged-in staff session shape returned by POST /api/auth/login.
+ * @property email Staff email.
+ * @property role Either "Librarian" (full write) or "Assistant" (read-only).
+ * @property token JWT bearer token sent on every request.
+ * @property expiresAt ISO date when the token expires.
+ */
 export type AuthUser = {
   email: string;
   role: string;
@@ -17,8 +32,13 @@ export type AuthUser = {
   expiresAt: string;
 };
 
+/** localStorage key where the AuthUser session is persisted. */
 const AUTH_KEY = 'libraryAuth';
 
+/**
+ * Read the saved auth session from localStorage.
+ * @returns The stored AuthUser, or null if missing/corrupt (safe to call on load).
+ */
 export function getStoredAuth(): AuthUser | null {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
@@ -28,10 +48,18 @@ export function getStoredAuth(): AuthUser | null {
   }
 }
 
+/**
+ * Persist the auth session to localStorage after a successful login.
+ * @param user AuthUser returned by the login endpoint.
+ */
 export function setStoredAuth(user: AuthUser) {
   localStorage.setItem(AUTH_KEY, JSON.stringify(user));
 }
 
+/**
+ * Clear the auth session on logout or on 401 Session-expired.
+ * Also removes the legacy pre-auth email key.
+ */
 export function clearStoredAuth() {
   localStorage.removeItem(AUTH_KEY);
   // Drop the legacy pre-auth key so old sessions can't linger.
@@ -39,14 +67,21 @@ export function clearStoredAuth() {
 }
 
 // Role names mirror backend UserRoles. Single source so a rename touches one line.
+/** Role string that grants write access (mirrors backend UserRoles.Librarian). */
 export const LIBRARIAN_ROLE = 'Librarian';
 
 // Central place to decide write access: only Librarians mutate data.
+/**
+ * Check if a user can mutate data (create/edit/delete).
+ * @param user Current session or null when logged out.
+ * @returns True only for the Librarian role; Assistants are read-only.
+ */
 export const isLibrarian = (user: AuthUser | null) => user?.role === LIBRARIAN_ROLE;
 
 // Shared response checker: fetch() only rejects on network errors, NOT on
 // HTTP 400/404/500. So we must inspect res.ok ourselves and throw with the
 // backend's message (GlobalExceptionHandler returns { message }).
+/** Throw a friendly Error when fetch() returns non-2xx; otherwise parse JSON. Keeps error handling in one place. */
 async function handleRes(res: Response) {
   if (!res.ok) {
     // 401 = missing/expired token -> drop it so the app falls back to login.
@@ -71,6 +106,7 @@ async function handleRes(res: Response) {
   return res.json();
 }
 
+/** Low-level fetch wrapper: prefixes API_BASE_URL, injects JWT + JSON headers, then delegates to handleRes. */
 async function req(path: string, init?: RequestInit) {
   const token = getStoredAuth()?.token;
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -86,6 +122,7 @@ async function req(path: string, init?: RequestInit) {
 
 // DTO = Data Transfer Object: the exact JSON shape the API sends/returns.
 // `?` means optional, `| null` because C# nullable strings arrive as null.
+/** Author DTO — mirrors backend AuthorDto (id, name, optional bio + birth date). */
 export type Author = {
   id: string;
   name: string;
@@ -93,12 +130,14 @@ export type Author = {
   dateOfBirth?: string | null;
 };
 
+/** Category DTO — book grouping (e.g. Fiction). Description is optional. */
 export type Category = {
   id: string;
   name: string;
   description?: string | null;
 };
 
+/** Book DTO — catalog title with denormalized authorName/categoryName for display (avoids extra lookups). */
 export type Book = {
   id: string;
   title: string;
@@ -115,6 +154,7 @@ export type Book = {
   categoryName?: string | null;
 };
 
+/** Member DTO — library borrower with active flag (inactive members cannot borrow). */
 export type Member = {
   id: string;
   firstName: string;
@@ -126,12 +166,14 @@ export type Member = {
   isActive: boolean;
 };
 
+/** BookAvailability DTO — aggregated stock per title from GET /api/books/availability. */
 export type BookAvailability = {
   bookId: string;
   totalCopies: number;
   availableCopies: number;
 };
 
+/** BookCopy DTO — one physical borrowable copy (barcode + shelf). isAvailable = not currently on loan. */
 export type BookCopy = {
   id: string;
   bookId: string;
@@ -142,6 +184,7 @@ export type BookCopy = {
   isAvailable: boolean;
 };
 
+/** Loan DTO — a borrow of one copy by one member; status is Active | Overdue | Returned. */
 export type Loan = {
   id: string;
   bookCopyId: string;
@@ -156,6 +199,7 @@ export type Loan = {
   renewalCount: number;
 };
 
+/** Request body for POST /api/books — authorId/categoryId link the title; ISBN is set once at creation. */
 export type CreateBookBody = {
   title: string;
   isbn: string;
@@ -169,6 +213,7 @@ export type CreateBookBody = {
   coverImageUrl?: string;
 };
 
+/** Request body for PUT /api/books/:id — only editable details (backend has no author/category change here). */
 export type UpdateBookBody = {
   title: string;
   description?: string;
@@ -181,6 +226,10 @@ export type UpdateBookBody = {
 
 // One function per endpoint. GETs just fetch; POSTs send JSON bodies.
 // Each returns a Promise: use `await api.getBooks()` inside an async function.
+/**
+ * api — Grouped endpoint helpers (auth, books, authors, categories, members, loans).
+ * Each method returns a Promise; call with `await api.getBooks()` inside async handlers.
+ */
 export const api = {
   // ---- Auth (public login; every other endpoint needs the JWT) ----
   login: (email: string, password: string): Promise<AuthUser> =>

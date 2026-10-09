@@ -1,3 +1,10 @@
+/**
+ * LoginPage.tsx — Staff sign-in form + one-click demo logins for both roles.
+ * Junior-dev guide:
+ * - Props: onLogin(user) lifts the AuthUser up to App so it can switch to the main UI.
+ * - State: controlled email/password inputs + showPassword/error/loading UI flags.
+ * - Flow: validate locally -> POST /api/auth/login -> setStoredAuth + onLogin.
+ */
 import { useState } from 'react';
 import {
   Box,
@@ -25,10 +32,17 @@ export const ASSISTANT_PASSWORD = 'Assistant123!';
 // Backend login: POST /api/auth/login mints a JWT with the role claim.
 // Props = inputs a parent passes in. Here App gives us `onLogin`, a callback
 // we invoke on success so App can switch from login screen to the main UI.
+/**
+ * LoginPageProps — onLogin lifts the logged-in session to App.tsx.
+ */
 type LoginPageProps = {
   onLogin: (user: AuthUser) => void;
 };
 
+/**
+ * LoginPage — Email/password form with validation, visibility toggle, and demo quick-logins.
+ * @param onLogin Callback invoked with the AuthUser after successful login.
+ */
 export default function LoginPage({ onLogin }: LoginPageProps) {
   // Controlled inputs: the TextField's `value` always mirrors this state,
   // and every keystroke updates it via onChange. Source of truth = state, not the DOM.

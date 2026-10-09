@@ -1,7 +1,15 @@
+/* ============================================================
+ * index.css — Minimal global stylesheet (MUI handles most styling).
+ * Sections: 1) Box-sizing reset 2) Body defaults 3) Root container.
+ * Note: no background-color here so MUI CssBaseline can theme it.
+ * ============================================================ */
+
+/* --- 1) Box-sizing reset: padding/border included in width/height --- */
 * {
   box-sizing: border-box;
 }
 
+/* --- 2) Body defaults: remove margin, set system font stack --- */
 body {
   margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -10,6 +18,7 @@ body {
      the theme in dark mode. */
 }
 
+/* --- 3) Root container: full-viewport height for the React app --- */
 #root {
   min-height: 100vh;
 }
