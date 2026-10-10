@@ -54,22 +54,27 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
 
   // Single login path used by both the form and the one-click demo buttons.
+  // async = this talks to the backend and waits for an answer without freezing the screen.
   const doLogin = async (e: string, p: string) => {
-    setError('');
-    setLoading(true);
+    setError(''); // clear old error banner before trying again
+    setLoading(true); // show spinner + disable buttons so you can't click twice
     try {
+      // This tells TypeScript: user will look like AuthUser (token + email + role).
+      // await pauses here until POST /api/auth/login answers.
       const user: AuthUser = await api.login(e, p);
-      setStoredAuth(user);
-      onLogin(user);
+      setStoredAuth(user); // save token in localStorage so refresh keeps you logged in
+      onLogin(user); // tell App "login worked" so it switches from login screen to tabs
     } catch (err) {
+      // Any network or wrong-password error lands here and shows in the red banner.
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
     } finally {
-      setLoading(false);
+      setLoading(false); // always stop spinner, success or fail
     }
   };
 
   // One-click demo sign-in: fills the form AND submits against the backend,
   // so each role is a single click. Errors surface in the same banner.
+  // void = "run the promise but don't wait here" (doLogin handles its own loading/error).
   const quickLogin = (e: string, p: string) => {
     setEmail(e);
     setPassword(p);
@@ -92,6 +97,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return;
     }
 
+    // .trim() removes accidental spaces at start/end before sending to backend.
+    // Password is not trimmed on purpose: spaces could be part of a password.
     void doLogin(email.trim(), password);
   };
 

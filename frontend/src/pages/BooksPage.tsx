@@ -46,9 +46,11 @@ import {
 // Books catalog: search + author/category/availability filters, add/edit/
 // delete dialogs, and a detail dialog showing physical copies.
 // CopyCount maps book.id -> counts so each card renders without its own fetch.
+// Example: copyCounts["book123"] = { total: 3, available: 1 } means 1 of 3 copies can be borrowed.
 /** CopyCount — Aggregated stock for one title (total vs currently borrowable). */
 type CopyCount = { total: number; available: number };
 
+// Starting values for the Add dialog. We reset form to this so old typing never leaks into the next Add.
 const emptyForm = {
   title: '',
   isbn: '',
@@ -70,44 +72,47 @@ const emptyForm = {
  * @param canWrite Librarian-only flag that shows mutation buttons when true.
  */
 export default function BooksPage({ canWrite }: { canWrite: boolean }) {
-  // Server data (loaded once on mount) + page status flags.
+  // Server data loaded once on mount. books = titles, copyCounts = stock per title, authors/categories = dropdown options.
   const [books, setBooks] = useState<Book[]>([]);
+  // copyCounts avoids N extra API calls: one availability call fills every card's "2 of 3 available" chip.
   const [copyCounts, setCopyCounts] = useState<Record<string, CopyCount>>({});
   const [authors, setAuthors] = useState<Author[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true); // big spinner while loadAll runs
+  const [error, setError] = useState(''); // red page banner
 
-  // Search + filters (client-side; the API has no query params).
+  // Search + filters are client-side only; the API has no ?search params, so we filter the loaded array.
+  // Empty string = "All" (no filtering on that field).
   const [query, setQuery] = useState('');
   const [authorFilter, setAuthorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [availFilter, setAvailFilter] = useState<'all' | 'available' | 'unavailable' | 'nocopies'>('all');
   const [sort, setSort] = useState<'title' | 'year-desc' | 'year-asc' | 'available'>('title');
 
-  // Add / edit dialog state. `editing` null = create mode.
+  // Add / edit dialog state. `editing` null = create mode, object = edit mode.
+  // form holds every TextField in one object (instead of 10 separate useStates like MembersPage).
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Book | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
+  const [formError, setFormError] = useState(''); // server errors (like duplicate ISBN) show here
   // Per-field errors (client validation). formError stays for server failures.
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [copyMsg, setCopyMsg] = useState('');
+  const [copyMsg, setCopyMsg] = useState(''); // blue info banner after "+ Copy" succeeds/fails
 
-  // Detail dialog: selected book + its copies.
+  // Detail dialog: selected book + its physical copies (barcodes). null = dialog closed.
   const [detail, setDetail] = useState<Book | null>(null);
   const [detailCopies, setDetailCopies] = useState<BookCopy[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [newBarcode, setNewBarcode] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false); // spinner inside detail dialog
+  const [newBarcode, setNewBarcode] = useState(''); // empty = auto-generate barcode
   const [newShelf, setNewShelf] = useState('');
 
-  // Delete confirmation.
+  // Delete confirmation: which book did we click Delete on? null = dialog closed.
   const [confirmDelete, setConfirmDelete] = useState<Book | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Loads everything in parallel (Promise.all) instead of sequentially.
-  // Availability comes from ONE /books/availability call (not one per book).
+  // Loads everything in parallel (Promise.all) instead of one-after-the-other, so 4 GETs finish in ~1x time.
+  // Availability comes from ONE /books/availability call (not one per book, which would be N slow calls).
   // try/catch/finally: error banner on failure, spinner always stops.
   /** API call: load books + authors + categories + availability in parallel; rebuilds copyCounts map. */
   const loadAll = async () => {
@@ -125,11 +130,13 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
       setCategories(c);
 
       // Single availability call replaces N per-book copies fetches.
+      // Turn array [{bookId, totalCopies, availableCopies}] into lookup {bookId: {total, available}}.
       const counts: Record<string, CopyCount> = {};
       (avail as BookAvailability[]).forEach((row) => {
         counts[row.bookId] = { total: row.totalCopies, available: row.availableCopies };
       });
       // Books missing from the response (e.g. just created) default to 0/0.
+      // ??= means "only assign if key does not exist yet".
       b.forEach((book: Book) => {
         counts[book.id] ??= { total: 0, available: 0 };
       });
@@ -142,12 +149,16 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
   };
 
   // useEffect with [] runs once after first render = "on page load".
+  // This is the fetch-on-open pattern you saw in AuthorsPage.
   useEffect(() => {
     loadAll();
   }, []);
 
+  // Step 1: filter. Each if returns false = "hide this book".
+  // Order matters: cheap dropdown checks first, slow text search last.
+  // ?? '' turns null authorName into empty string so .toLowerCase() never crashes.
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim().toLowerCase(); // trim + lowercase so "  Clean " matches "clean"
     return books.filter((b) => {
       if (authorFilter && b.authorId !== authorFilter) return false;
       if (categoryFilter && b.categoryId !== categoryFilter) return false;
@@ -155,7 +166,7 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
       if (availFilter === 'available' && !(count && count.available > 0)) return false;
       if (availFilter === 'unavailable' && !(count && count.total > 0 && count.available === 0)) return false;
       if (availFilter === 'nocopies' && !(count && count.total === 0)) return false;
-      if (!q) return true;
+      if (!q) return true; // no search text = keep everything that passed dropdowns
       return (
         b.title.toLowerCase().includes(q) ||
         b.isbn.toLowerCase().includes(q) ||
@@ -165,7 +176,8 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
     });
   }, [books, query, authorFilter, categoryFilter, availFilter, copyCounts]);
 
-  // Sorting runs after filtering (client-side; the API has no sort params).
+  // Step 2: sorting runs after filtering (client-side; the API has no sort params).
+  // [...filtered] copies the array first because .sort() changes the array in place.
   const sorted = useMemo(() => {
     const arr = [...filtered];
     switch (sort) {
@@ -184,6 +196,7 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
 
   // Client-side pagination over the filtered + sorted list. Resets to page 1
   // whenever a filter changes so you never sit on an empty page after narrowing.
+  // paged = only the 8 cards for the current page (what .map() renders below).
   const {
     page,
     setPage,
@@ -198,9 +211,8 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
     setPage(1);
   }, [query, authorFilter, categoryFilter, availFilter, sort, setPage]);
 
-  // useEffect with [] runs once after first render = "on page load" (see loadAll effect above).
-  // CSV export covers the whole filtered set (not just the visible page).
-  // Event handler: export the current filtered+sorted list to books.csv.
+  // CSV export covers the whole sorted set (not just the visible page).
+  // Event handler: export the current filtered+sorted list to books.csv in Downloads.
   const handleExport = () => {
     exportCsv(
       'books.csv',
@@ -328,49 +340,55 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // Adds one physical (borrowable) copy with an auto-generated barcode,
-  // then patches just that book's counts so the chip updates without full reload.
-  // setCopyCounts(prev => ...) uses the functional form to avoid stale state.
+  // Adds one physical (borrowable) copy. A title can have many copies, each with its own barcode.
+  // Quick "+ Copy" button calls with no barcode -> we auto-generate BC-12345678. Detail dialog passes typed values.
+  // Then patches just that book's counts so the chip updates without full reload.
+  // setCopyCounts(prev => ...) uses the functional form: prev is the latest state, so we never overwrite with stale data.
   const handleAddCopy = async (bookId: string, barcode?: string, shelf?: string) => {
-    setCopyMsg('');
+    setCopyMsg(''); // clear old blue banner
     // User-typed barcodes/shelves are validated locally (backend caps are
     // 50 chars; uniqueness is still enforced server-side). Auto-generated
     // barcodes from the quick "+ Copy" button always pass.
+    // barcode !== undefined means "user typed something" (detail dialog). undefined means quick button.
     if (barcode !== undefined) {
-      const err = barcodeValidator(barcode) ?? shelfValidator(shelf);
+      const err = barcodeValidator(barcode) ?? shelfValidator(shelf); // ?? = use shelf error only if barcode passed
       if (err) {
         setCopyMsg(err);
-        return;
+        return; // stop here, don't call backend with bad input
       }
     }
     try {
+      // If no barcode given, make one from current time. .trim() removes accidental spaces.
       const bc = (barcode ?? `BC-${Date.now().toString().slice(-8)}`).trim();
-      await api.addCopy(bookId, bc, shelf || 'A1');
+      await api.addCopy(bookId, bc, shelf || 'A1'); // POST /copies, A1 = default shelf
       setCopyMsg(`Copy ${bc} added! It is now available for rental.`);
       // Refresh counts so the new copy shows immediately.
       const copies: BookCopy[] = await api.getCopies(bookId);
       setCopyCounts((prev) => ({
-        ...prev,
+        ...prev, // keep all other books' counts, only replace this one bookId
         [bookId]: {
           total: copies.length,
           available: copies.filter((cp) => cp.isAvailable).length,
         },
       }));
+      // If detail dialog is open on this same book, update its copy list too.
       if (detail && detail.id === bookId) setDetailCopies(copies);
     } catch (err) {
       setCopyMsg(err instanceof Error ? err.message : 'Could not add copy.');
     }
   };
 
+  // Open detail dialog for one book, then fetch its copies.
+  // We open first (setDetail) so dialog appears instantly, then fill copies when they arrive.
   const openDetail = async (b: Book) => {
     setDetail(b);
-    setDetailLoading(true);
-    setNewBarcode('');
+    setDetailLoading(true); // spinner inside dialog while copies load
+    setNewBarcode(''); // clear Add-copy inputs from last time
     setNewShelf('');
     try {
-      setDetailCopies(await api.getCopies(b.id));
+      setDetailCopies(await api.getCopies(b.id)); // GET /books/{id}/copies
     } catch {
-      setDetailCopies([]);
+      setDetailCopies([]); // on error show "No copies yet" instead of crashing
     } finally {
       setDetailLoading(false);
     }
@@ -378,6 +396,7 @@ export default function BooksPage({ canWrite }: { canWrite: boolean }) {
 
   // Updating a field clears its validation error so fixed input
   // immediately un-marks the field without waiting for re-submit.
+  // Example: set('title', 'Clean Code') updates form.title and clears fieldErrors.title.
   const set = (k: keyof typeof emptyForm, v: string | number) => {
     setForm((f) => ({ ...f, [k]: v }));
     clearFieldError(setFieldErrors, k);

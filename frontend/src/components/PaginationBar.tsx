@@ -9,8 +9,8 @@ import { Box, MenuItem, Pagination, TextField, Typography } from '@mui/material'
 
 // Reusable client-side pagination. The backend has no paging query params,
 // so every page slices its already-filtered array locally.
-// usePagination clamps + resets the page whenever the item list shrinks
-// (e.g. after a search) so you never land on an empty page.
+// usePagination owns page/pageSize state; PaginationBar only renders controls.
+// Example: 25 books, pageSize 8 -> 4 pages. paged = 8 items for current page.
 /**
  * usePagination — Slice any array into pages with auto-clamping.
  * @param items Full (already filtered/sorted) array to paginate.
@@ -18,17 +18,22 @@ import { Box, MenuItem, Pagination, TextField, Typography } from '@mui/material'
  * @returns page state, setters, totals, current slice `paged`, and resetPage().
  */
 export function usePagination<T>(items: T[], initialPageSize = 8) {
+  // page = 1-based current page (humans count from 1). pageSize = rows per page.
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
-  const total = items.length;
+  const total = items.length; // total rows after filter, before paging
+  // Math.ceil(25/8)=4 pages. Math.max(1, ...) keeps at least 1 page so UI never shows "page 0".
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // If filters shrink the list below the current page, jump back into range.
+  // Example: you are on page 4, then search leaves 1 page -> auto-jump to page 1 so you don't see empty.
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  // paged = slice for current page. (page-1)*pageSize = start index. useMemo avoids re-slicing every render.
+  // Example: page 2, size 8 -> slice(8, 16).
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
     return items.slice(start, start + pageSize);
@@ -54,6 +59,7 @@ type PaginationBarProps = {
 
 // Footer row: "Showing X–Y of Z" + page-size dropdown + MUI Pagination.
 // Renders nothing when there is only one page (avoids visual noise).
+// Props are controlled from the parent: parent owns page state via usePagination, we just call onPageChange.
 /**
  * PaginationBar — Footer showing "Showing X–Y of Z" + per-page dropdown + page buttons.
  * @param page Current 1-based page number.

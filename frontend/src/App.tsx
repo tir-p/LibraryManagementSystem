@@ -57,21 +57,25 @@ const THEME_KEY = 'libraryTheme'; // localStorage key for persisted light/dark c
  */
 function App() {
   // Auth session: null = logged out, AuthUser = JWT + email + role.
-  // Lazy initializer reads localStorage only once on first render.
+  // Lazy initializer (() => getStoredAuth()) reads localStorage only once on first render, not every render.
   const [user, setUser] = useState<AuthUser | null>(() => getStoredAuth());
   // Which tab is shown. Simple string state acts as our "router" (no react-router needed).
+  // Example: setPage('books') unmounts Dashboard and mounts BooksPage.
   const [page, setPage] = useState<Page>('dashboard');
   // Dark mode, persisted like the session. Theme object is memoized so the
   // whole tree doesn't re-render on every keystroke elsewhere.
+  // () => ... reads saved choice once: 'dark' stays dark, anything else starts light.
   const [mode, setMode] = useState<'light' | 'dark'>(
     () => (localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'),
   );
   // Open/overdue rental counts for the nav badge. Refreshed on login and
   // every tab switch so the badge is fresh after returning a book.
+  // Example: openCount=5, overdueCount=2 -> Rentals tab shows red "2".
   const [openCount, setOpenCount] = useState(0);
   const [overdueCount, setOverdueCount] = useState(0);
 
   // useMemo: rebuild the MUI theme object only when `mode` flips (perf: avoids re-render churn).
+  // Without useMemo, a new theme object every render would re-style the whole app every keystroke.
   const theme = useMemo(
     () =>
       createTheme({
@@ -85,13 +89,15 @@ function App() {
   );
 
   // useEffect: side-effect that fetches loans after login/tab change to refresh the Rentals badge counts.
+  // [user, page] = re-run when you log in/out OR switch tabs. if (!user) return = skip while logged out.
+  // cancelled flag prevents "set state on unmounted component" if you log out mid-fetch.
   useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
+    if (!user) return; // logged out: no badge to update, do nothing
+    let cancelled = false; // becomes true in cleanup below if effect re-runs or unmounts
     api
       .getLoans()
       .then((loans) => {
-        if (cancelled) return;
+        if (cancelled) return; // fetch finished late: ignore it, screen already changed
         const open = loans.filter((l) => l.status === 'Active' || l.status === 'Overdue');
         setOpenCount(open.length);
         setOverdueCount(loans.filter((l) => l.status === 'Overdue').length);
