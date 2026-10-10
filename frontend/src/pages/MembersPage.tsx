@@ -44,15 +44,17 @@ import {
  * @param canWrite Shows Add/Edit/Deactivate buttons only for Librarians.
  */
 export default function MembersPage({ canWrite }: { canWrite: boolean }) {
-  // members = server list; loading/error = page status.
+  // members = list from backend, loans = all rentals (used for history + counts, no extra fetch per member).
+  // query/statusFilter/sort = what the user picked in the filter row.
   const [members, setMembers] = useState<Member[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true); // true = show big spinner
+  const [error, setError] = useState(''); // non-empty = show red banner
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [sort, setSort] = useState<'name' | 'newest' | 'oldest'>('name');
-  // Loan history: which member card is expanded (loans are already loaded).
+  // Loan history: which member card is expanded. Just an id (or null = all collapsed).
+  // Loans are already loaded above, so expanding needs no new API call.
   const [historyId, setHistoryId] = useState<string | null>(null);
 
   // Dialog visibility + one state per form field (controlled inputs).
@@ -76,20 +78,22 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
 
   // Single loader reused by mount, Refresh button, create, and toggle.
   /** API call: fetch members + loans together; loans power history + active counts. */
+  // Promise.all runs both GETs at the same time (faster than one after the other).
+  // If loans fail we use [] so members still show (history just stays empty).
   const load = async () => {
     setLoading(true);
     setError('');
     try {
       const [m, l] = await Promise.all([
-        api.getMembers(),
-        api.getLoans().catch(() => [] as Loan[]),
+        api.getMembers(), // GET /api/members
+        api.getLoans().catch(() => [] as Loan[]), // GET /api/loans, fallback to empty on error
       ]);
       setMembers(m);
       setLoans(l);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load members.');
     } finally {
-      setLoading(false);
+      setLoading(false); // always stop spinner
     }
   };
 
@@ -98,6 +102,9 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     load();
   }, []);
 
+  // Derived map: memberId -> how many open rentals they have.
+  // Example: { "abc123": 2 } means that member has 2 active/overdue loans.
+  // Recomputes only when loans change. Used in the card ("2 active rental(s)") + CSV export.
   const activeCountByMember = useMemo(() => {
     const map: Record<string, number> = {};
     loans.forEach((l) => {
@@ -139,6 +146,8 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
   }, [filtered, sort]);
 
   // Loans grouped by member for the expandable history section.
+  // Shape: { memberId: [loan1, loan2] }. (map[id] ??= []) means "create empty array first time we see this id".
+  // Each member's list is sorted newest-first. No API call here, just regrouping what we already loaded.
   const loansByMember = useMemo(() => {
     const map: Record<string, Loan[]> = {};
     loans.forEach((l) => {
@@ -150,6 +159,8 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     return map;
   }, [loans]);
 
+  // Paginate the sorted list. paged = cards for current page.
+  // Reset to page 1 when filters change so you never sit on an empty page.
   const {
     page,
     setPage,
@@ -164,6 +175,7 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     setPage(1);
   }, [query, statusFilter, sort, setPage]);
 
+  // Export the whole sorted list (not just current page) to members.csv in Downloads.
   const handleExport = () => {
     exportCsv(
       'members.csv',
@@ -179,6 +191,7 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     );
   };
 
+  // Open empty dialog for Add. editing = null means create mode.
   const openCreate = () => {
     setEditing(null);
     setFirstName('');
@@ -190,6 +203,7 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
     setOpen(true);
   };
 
+  // Open dialog filled with this member's values for Edit.
   const openEdit = (m: Member) => {
     setEditing(m);
     setFirstName(m.firstName);
@@ -202,9 +216,10 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
   };
 
   // Validate every field locally (mirrors backend caps + guards), then
-  // POST/PUT -> close + clear form -> reload list so the row appears.
+  // POST/PUT -> close + reload list so the row appears.
+  // If errs has even one entry, return early: no API call happens.
   const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault(); // stop browser full-page reload on form submit
     setFormError('');
     const errs: FieldErrors = {};
     const put = (field: string, msg: string | null) => {
@@ -244,6 +259,7 @@ export default function MembersPage({ canWrite }: { canWrite: boolean }) {
 
   // One button toggles both directions; the label follows current state.
   // Reload after the POST so the chip + Rentals dropdown stay in sync.
+  // Example: isActive=true -> button says "Deactivate" and calls deactivateMember.
   const toggleActive = async (m: Member) => {
     try {
       if (m.isActive) await api.deactivateMember(m.id);

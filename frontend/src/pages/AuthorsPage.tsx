@@ -56,13 +56,19 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
+  // This is a helper that makes a TextField "controlled".
+  // value={name} shows the state, onChange saves every keystroke back into state.
+  // It also clears that field's red error as soon as you start fixing it.
   const onEdit =
     (field: string, setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
       setter(e.target.value);
       clearFieldError(setFieldErrors, field);
     };
 
+  // Which author are we sure we want to delete? null = no dialog open.
+  // We store the whole object so the dialog can show its name.
   const [confirmDelete, setConfirmDelete] = useState<Author | null>(null);
+  // Spinner just for the Delete button, so you can't double-click delete.
   const [deleting, setDeleting] = useState(false);
 
   /** API call: fetch all authors, showing spinner and error banner as needed. Reused by mount + Refresh + save/delete. */
@@ -70,27 +76,31 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     setLoading(true);
     setError('');
     try {
-      setAuthors(await api.getAuthors());
+      setAuthors(await api.getAuthors()); // GET /api/authors
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load authors.');
     } finally {
-      setLoading(false);
+      setLoading(false); // always stop spinner
     }
   };
 
   // useEffect with [] = run once on mount (fetch-on-load pattern).
+  // Empty [] means "no dependencies, so never re-run". This just loads the list when you open the page.
   useEffect(() => {
     load();
   }, []);
 
-  // useMemo: derived filtered list (recomputed only when authors/query change).
-
+  // useMemo = "recompute only when [authors, query] change, otherwise reuse old result".
+  // Without it, filtering would run on every render, even when typing in the dialog.
+  // This is a derived list: we don't store it in useState, we calculate it from authors + query.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return authors;
+    if (!q) return authors; //If q is an empty string, return the complete list of authors without filtering.
     return authors.filter((a) => a.name.toLowerCase().includes(q));
   }, [authors, query]);
 
+  // Take the filtered list and cut out just the current page (8 items).
+  // paged = what we actually render below with .map().
   const {
     page,
     setPage,
@@ -101,13 +111,14 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     paged,
   } = usePagination(filtered, 8);
 
-  // useEffect: reset to page 1 whenever the search query changes (avoids empty page after narrowing).
+  // If you search while on page 3, the result might only have 1 page.
+  // So jump back to page 1 whenever the search text changes, or you would see an empty page.
   useEffect(() => {
     setPage(1);
   }, [query, setPage]);
 
   // Event handler: open blank dialog for creating a new author.
-
+  // editing = null means "we are creating, not editing".
   const openCreate = () => {
     setEditing(null);
     setName('');
@@ -118,6 +129,8 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     setOpen(true);
   };
 
+  // Fill the dialog with this author's current values, then open it.
+  // editing = that author means "we are editing, not creating".
   const openEdit = (a: Author) => {
     setEditing(a);
     setName(a.name);
@@ -128,19 +141,25 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
     setOpen(true);
   };
 
+  // Runs when you press Save in the dialog.
+  // e.preventDefault() stops the browser from reloading the whole page on form submit.
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    // errs collects one message per bad field. If it stays empty, the form is valid.
     const errs: FieldErrors = {};
+    // put() helper: only adds to errs when msg is not null (so valid fields add nothing).
     const put = (field: string, msg: string | null) => {
       if (msg) errs[field] = msg;
     };
     put('name', text(name, 'Name', LIMITS.authorName));
     put('biography', optionalText(biography, LIMITS.biography, 'Biography'));
+    // Date of birth is only asked on create. On edit the field is hidden, so skip its check.
     if (!editing) put('dateOfBirth', dobValidator(dateOfBirth));
     setFieldErrors(errs);
+    // If even one field failed, stop here and show red text under that field. No API call.
     if (Object.keys(errs).length > 0) return;
-    setSaving(true);
+    setSaving(true); // show spinner on Save button and block double-clicks
     try {
       const body = {
         name: name.trim(),
@@ -151,23 +170,28 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
       };
       if (editing) await api.updateAuthor(editing.id, { name: body.name, biography: body.biography });
       else await api.createAuthor(body);
-      setOpen(false);
+      setOpen(false); // close dialog first so UI feels fast
+      // Re-fetch the full list so the new/edited row appears (backend gave it the real id).
       await load();
     } catch (err) {
+      // Server errors (like duplicate name) land here and show in the red banner inside the dialog.
       setFormError(err instanceof Error ? err.message : 'Save failed.');
     } finally {
-      setSaving(false);
+      setSaving(false); // always stop spinner, success or fail
     }
   };
 
+  // Runs when you press Delete in the confirm dialog.
+  // Guard: if dialog was closed already, there is nothing to delete.
   const handleDelete = async () => {
     if (!confirmDelete) return;
     setDeleting(true);
     try {
       await api.deleteAuthor(confirmDelete.id);
-      setConfirmDelete(null);
-      await load();
+      setConfirmDelete(null); // close dialog
+      await load(); // refresh list so deleted row disappears
     } catch (err) {
+      // Example: author still has books -> backend refuses, we show its message in the page banner.
       setError(err instanceof Error ? err.message : 'Delete failed.');
       setConfirmDelete(null);
     } finally {
@@ -197,6 +221,7 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
         </Alert>
       )}
 
+      {/* Search box is "controlled": value always equals query state, onChange saves typing into query. */}
       <TextField
         label="Search authors"
         value={query}
@@ -207,17 +232,23 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
         placeholder="Type a name…"
       />
 
+      {/* Loading spinner: show only while load() is running. */}
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress />
         </Box>
       )}
+      {/* Error banner: show only when not loading and error text is not empty. */}
       {!loading && error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      {/* Empty state: list loaded fine but filter removed everything (or list is truly empty). */}
       {!loading && !error && filtered.length === 0 && (
         <Alert severity="info">No authors found. Click “Add Author” to create one.</Alert>
       )}
 
+      {/* Main list: .map() turns each author into one Card. */}
+      {/* key={a.id} helps React tell cards apart when the list changes (always needed in lists). */}
+      {/* paged = only the 8 items for the current page, not the whole filtered list. */}
       {!loading &&
         !error &&
         paged.map((a) => (
@@ -236,7 +267,9 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
                   </Typography>
                 )}
               </Box>
-              {canWrite && (
+        {/* canWrite comes from App: true for Librarian, false for Assistant. */}
+        {/* {canWrite && (...)} means "show this button only for Librarians, otherwise show nothing". */}
+        {canWrite && (
                 <>
                   <Button size="small" variant="outlined" startIcon={<Edit />} onClick={() => openEdit(a)}>
                     Edit
@@ -270,8 +303,10 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
         />
       )}
 
+      {/* Add/Edit dialog: open=true shows it. Title and date field change with editing (null = create). */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? 'Edit author' : 'Add author'}</DialogTitle>
+        {/* onSubmit={handleSave} runs our save function when you press Enter or click Save. */}
         <Box component="form" onSubmit={handleSave}>
           <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {formError && <Alert severity="error">{formError}</Alert>}
@@ -319,6 +354,7 @@ export default function AuthorsPage({ canWrite }: { canWrite: boolean }) {
         </Box>
       </Dialog>
 
+      {/* Delete confirm: open={!!confirmDelete} turns the author object into true/false. null = closed. */}
       <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete author?</DialogTitle>
         <DialogContent>

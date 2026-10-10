@@ -32,10 +32,12 @@ import { dueLabel } from '../utils/libraryUtils';
 
 // Lazy: recharts is heavy (~100KB+), so it loads as a separate chunk only
 // when the dashboard mounts — the login + list pages never download it.
+// Suspense below shows a gray Skeleton box while this chunk downloads.
 const DashboardCharts = lazy(() => import('../components/DashboardCharts'));
 
 // Dashboard: at-a-glance counts + overdue list. All data comes from the
 // same endpoints the other pages use — no dedicated stats endpoint needed.
+// We just fetch the raw lists and count/sum them on the frontend.
 /** Page — Tab ids accepted by the go() navigator (mirrors App.tsx Page type). */
 type Page = 'dashboard' | 'books' | 'rentals' | 'members' | 'authors' | 'categories';
 
@@ -44,7 +46,9 @@ type Page = 'dashboard' | 'books' | 'rentals' | 'members' | 'authors' | 'categor
  * @param go Callback to switch App tabs when a count card is clicked.
  */
 export default function DashboardPage({ go }: { go: (p: Page) => void }) {
+  // go = navigator from App: go('books') switches the tab to Books. Props are just parent callbacks.
   // Loading/error flags + counts object (titles, copies, members, active/overdue loans).
+  // counts is one object instead of 7 useStates, so one setCounts updates all cards together.
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [counts, setCounts] = useState({
@@ -56,28 +60,30 @@ export default function DashboardPage({ go }: { go: (p: Page) => void }) {
     activeLoans: 0,
     overdue: 0,
   });
-  const [overdueLoans, setOverdueLoans] = useState<Loan[]>([]);
-  // Raw lists for the charts (counts above are derived from the same data).
+  const [overdueLoans, setOverdueLoans] = useState<Loan[]>([]); // only status === 'Overdue', for "Needs attention"
+  // Raw lists for the charts (counts above are derived from the same data, charts need the full rows).
   const [chartBooks, setChartBooks] = useState<Book[]>([]);
   const [chartLoans, setChartLoans] = useState<Loan[]>([]);
   const [chartAvail, setChartAvail] = useState<BookAvailability[]>([]);
 
   /** API call: parallel fetch of books/availability/members/loans, then derive counts + chart lists. */
+  // Promise.all = run 4 GETs at once. .catch(() => []) means "if availability fails, use empty so dashboard still shows".
   const load = async () => {
     setLoading(true);
     setError('');
     try {
       const [books, avail, members, loans] = await Promise.all([
-        api.getBooks(),
-        api.getAvailability().catch(() => []),
-        api.getMembers(),
-        api.getLoans(),
+        api.getBooks(), // GET /api/books
+        api.getAvailability().catch(() => []), // GET /books/availability, fallback empty
+        api.getMembers(), // GET /api/members
+        api.getLoans(), // GET /api/loans
       ]);
+      // .reduce sums one field across all rows: s = running total, r = current row. Starts at 0.
       const totalCopies = avail.reduce((s, r) => s + r.totalCopies, 0);
       const availableCopies = avail.reduce((s, r) => s + r.availableCopies, 0);
       const overdue = loans.filter((l: Loan) => l.status === 'Overdue');
       const active = loans.filter(
-        (l: Loan) => l.status === 'Active' || l.status === 'Overdue',
+        (l: Loan) => l.status === 'Active' || l.status === 'Overdue', // open = not yet returned
       );
       setCounts({
         books: books.length,
@@ -99,10 +105,13 @@ export default function DashboardPage({ go }: { go: (p: Page) => void }) {
     }
   };
 
+  // Run once when dashboard opens. Refresh button also calls load().
   useEffect(() => {
     load();
   }, []);
 
+  // Card definitions for the top row. useMemo so they rebuild only when counts/go change.
+  // Each card has label + value + icon + action (clicking a card jumps to that tab).
   const cards = useMemo(
     () => [
       { label: 'Titles', value: counts.books, icon: <LibraryBooks color="primary" />, action: () => go('books') },

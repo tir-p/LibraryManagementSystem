@@ -35,31 +35,35 @@ import { MAX_ACTIVE_LOANS, loanDays as loanDaysValidator } from '../utils/valida
  * @param canWrite Librarian-only flag for borrow/renew/return buttons.
  */
 export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
-  // Base lists for the form and rows below.
+  // Base lists: loans = rows below, members/books = dropdown options in borrow form.
   const [loans, setLoans] = useState<Loan[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
   // Copies of the currently selected book (refreshed whenever bookId changes).
+  // Example: pick "Clean Code" -> copies = its 3 barcodes, only available ones are pickable.
   const [copies, setCopies] = useState<BookCopy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true); // big spinner while first load runs
+  const [error, setError] = useState(''); // red page banner
 
-  // List filters.
+  // List filters for the rows below (search + dropdowns). 'open' = Active + Overdue together.
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Overdue' | 'Returned' | 'open'>('all');
-  const [memberFilter, setMemberFilter] = useState('');
+  const [memberFilter, setMemberFilter] = useState(''); // empty = All members
   const [sort, setSort] = useState<'newest' | 'due-asc' | 'overdue-first' | 'title'>('newest');
 
-  // Borrow form state
+  // Borrow form state: ids of selected dropdown items. copyId = which physical barcode to lend.
   const [memberId, setMemberId] = useState('');
   const [bookId, setBookId] = useState('');
   const [copyId, setCopyId] = useState('');
-  const [loanDays, setLoanDays] = useState(14);
-  const [borrowing, setBorrowing] = useState(false);
+  const [loanDays, setLoanDays] = useState(14); // default 2 weeks, allowed 1-365
+  const [borrowing, setBorrowing] = useState(false); // spinner on Borrow button
+  // actingId = which row's Return/Renew spinner is running. null = none. Lets only that row spin.
   const [actingId, setActingId] = useState<string | null>(null);
+  // formMsg = green/red message above borrow form. null = no message.
   const [formMsg, setFormMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   /** API call: load loans + members + books for the form dropdowns and the list below. */
+  // Promise.all runs 3 GETs at once. One loader is reused by mount + Refresh + after borrow/return/renew.
   const loadBase = async () => {
     setLoading(true);
     setError('');
@@ -71,31 +75,35 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load rentals.');
     } finally {
-      setLoading(false);
+      setLoading(false); // always stop spinner
     }
   };
 
   // Runs once on mount: loans + members + books load together via Promise.all.
+  // Empty [] = run once when page opens.
   useEffect(() => {
     loadBase();
   }, []);
 
   // Dependent fetch: [bookId] means "re-run whenever the selected book changes".
+  // This is different from [] above: this effect watches bookId and refetches copies on every book pick.
   // Auto-selects the first available copy so the form is usually one click.
   useEffect(() => {
     const loadCopies = async () => {
       if (!bookId) {
+        // No book picked yet: clear copies dropdown ("Pick a book first").
         setCopies([]);
         setCopyId('');
-        return;
+        return; // stop here, no API call without a book
       }
       try {
-        const data: BookCopy[] = await api.getCopies(bookId);
+        const data: BookCopy[] = await api.getCopies(bookId); // GET /books/{id}/copies
         setCopies(data);
+        // .find returns first available copy, or undefined if all are loaned out.
         const firstAvailable = data.find((c) => c.isAvailable);
-        setCopyId(firstAvailable ? firstAvailable.id : '');
+        setCopyId(firstAvailable ? firstAvailable.id : ''); // pre-pick it, or empty if none
       } catch {
-        setCopies([]);
+        setCopies([]); // on error show "No available copies"
       }
     };
     loadCopies();
@@ -103,18 +111,21 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
 
   // POST /loans/borrow, then refresh loans + that book's copies so the
   // loaned copy leaves the "available" dropdown immediately.
+  // Guards return early with a red formMsg so we never call backend with bad input.
   const handleBorrow = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormMsg(null);
+    e.preventDefault(); // stop browser reload on form submit
+    setFormMsg(null); // clear old green/red message
     if (!memberId || !copyId) {
       setFormMsg({ type: 'error', text: 'Select a member and an available copy.' });
       return;
     }
-    const daysErr = loanDaysValidator(loanDays);
+    const daysErr = loanDaysValidator(loanDays); // checks 1-365 range, returns message or null
     if (daysErr) {
       setFormMsg({ type: 'error', text: daysErr });
       return;
     }
+    // Frontend mirror of backend rule: max 5 active loans per member. Check early for a friendly message.
+    // ?? 0 means "if member has no entry yet, treat as 0 loans".
     const active = activeLoansByMember[memberId] ?? 0;
     if (active >= MAX_ACTIVE_LOANS) {
       setFormMsg({
@@ -123,11 +134,11 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
       });
       return;
     }
-    setBorrowing(true);
+    setBorrowing(true); // spinner on Borrow button
     try {
       await api.borrow(copyId, memberId, Number(loanDays));
       setFormMsg({ type: 'success', text: 'Rental created!' });
-      const freshLoans: Loan[] = await api.getLoans();
+      const freshLoans: Loan[] = await api.getLoans(); // re-fetch so new row appears
       setLoans(freshLoans);
       // refresh copies so the just-loaned copy disappears from available
       if (bookId) {
@@ -139,22 +150,24 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
     } catch (err) {
       setFormMsg({ type: 'error', text: err instanceof Error ? err.message : 'Borrow failed.' });
     } finally {
-      setBorrowing(false);
+      setBorrowing(false); // always stop spinner
     }
   };
 
+  // Return one loan. actingId marks which row spins, so other rows stay clickable.
   const handleReturn = async (id: string) => {
     setActingId(id);
     try {
       await api.returnLoan(id);
-      setLoans(await api.getLoans());
+      setLoans(await api.getLoans()); // refresh so row flips to Returned
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Return failed.');
     } finally {
-      setActingId(null);
+      setActingId(null); // clear spinner even on error
     }
   };
 
+  // Renew extends due date. Backend allows max 2 renewals, only for Active (not Overdue) loans.
   const handleRenew = async (id: string) => {
     setActingId(id);
     try {
@@ -167,13 +180,14 @@ export default function RentalsPage({ canWrite }: { canWrite: boolean }) {
     }
   };
 
-  // Derived value (not state): recomputed from `copies` on every render.
-  // Only available copies are selectable; loaned ones are hidden entirely.
+  // Derived value (not state): recomputed from `copies` on every render, no useMemo needed (cheap filter).
+  // Only available copies are selectable; loaned ones are hidden entirely from the dropdown.
   const availableCopies = copies.filter((c) => c.isAvailable);
 
   // Active-loan count per member, mirroring the backend borrow policy
   // (LoanService counts Status == Active only, cap = MAX_ACTIVE_LOANS).
-  // Shown in the dropdown and enforced below so the failure isn't a surprise 400.
+  // Shown in the dropdown ("2/5 active") and enforced in handleBorrow so the failure isn't a surprise 400.
+  // Shape: { memberId: count }. Recomputes only when loans change.
   const activeLoansByMember = useMemo(() => {
     const map: Record<string, number> = {};
     loans.forEach((l) => {
